@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ImageUploadProps {
-  onImageSelect: (file: File) => void;
+  onImageSelect: (file: File | null) => void;
   selectedImage?: File | null;
   className?: string;
 }
@@ -33,7 +33,7 @@ export function ImageUpload({ onImageSelect, selectedImage, className }: ImageUp
 
   const clearImage = () => {
     setPreview(null);
-    onImageSelect(null as any);
+    onImageSelect(null);
   };
 
   return (

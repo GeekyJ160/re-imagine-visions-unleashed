@@ -14,7 +14,7 @@ export default function Index() {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
 
-  const handleImageSelect = (file: File) => {
+  const handleImageSelect = (file: File | null) => {
     setSelectedImage(file);
     if (file) {
       const url = URL.createObjectURL(file);
