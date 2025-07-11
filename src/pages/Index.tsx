@@ -2,25 +2,34 @@ import { useState } from 'react';
 import { ImageUpload } from '@/components/ImageUpload';
 import { PromptInput } from '@/components/PromptInput';
 import { ImageComparison } from '@/components/ImageComparison';
+import { AuthButton } from '@/components/AuthButton';
+import { GenerationHistory } from '@/components/GenerationHistory';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Zap, Heart, Star } from 'lucide-react';
+import { Sparkles, Zap, Heart, Star, Crown } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import heroImage from '@/assets/hero-bg.jpg';
 
 export default function Index() {
+  const { user, loading: authLoading } = useAuth();
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  const [currentGenerationId, setCurrentGenerationId] = useState<string | null>(null);
 
   const handleImageSelect = (file: File | null) => {
     setSelectedImage(file);
     if (file) {
       const url = URL.createObjectURL(file);
       setOriginalImageUrl(url);
+    } else {
+      setOriginalImageUrl(null);
     }
     setGeneratedImage(null);
+    setCurrentGenerationId(null);
   };
 
   const handleGenerate = async () => {
@@ -29,17 +38,50 @@ export default function Index() {
       return;
     }
 
+    if (!user) {
+      toast.error('Please sign in to generate images');
+      return;
+    }
+
     setIsGenerating(true);
     try {
-      // Simulate AI generation process
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Convert image to base64
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          throw new Error('Not authenticated');
+        }
+
+        // Call the edge function
+        const { data, error } = await supabase.functions.invoke('generate-image', {
+          body: {
+            prompt,
+            imageData: base64Data
+          },
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          }
+        });
+
+        if (error) throw error;
+
+        if (data.success) {
+          setGeneratedImage(data.imageUrl);
+          setCurrentGenerationId(data.generationId);
+          toast.success('Image transformation completed!');
+        } else {
+          throw new Error(data.error || 'Generation failed');
+        }
+      };
       
-      // For demo purposes, we'll use the original image as the result
-      // In a real app, this would be the AI-generated image
-      setGeneratedImage(originalImageUrl!);
-      toast.success('Image transformation completed!');
-    } catch (error) {
-      toast.error('Failed to generate image. Please try again.');
+      reader.readAsDataURL(selectedImage);
+    } catch (error: any) {
+      console.error('Generation error:', error);
+      toast.error(error.message || 'Failed to generate image. Please try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -72,6 +114,10 @@ export default function Index() {
         <div className="absolute inset-0 bg-gradient-hero" />
         
         <div className="relative max-w-6xl mx-auto px-4 pt-16 pb-24">
+          <div className="absolute top-4 right-4">
+            <AuthButton />
+          </div>
+          
           <div className="text-center space-y-6 animate-fade-in">
             <div className="inline-flex items-center gap-2 bg-gradient-glass backdrop-blur-sm rounded-full px-4 py-2 border border-border/30">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -87,6 +133,15 @@ export default function Index() {
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
               Upload any image and describe how you want it transformed. Our advanced AI will create stunning variations with complete creative freedom.
             </p>
+
+            {user && (
+              <div className="inline-flex items-center gap-2 bg-gradient-primary rounded-full px-4 py-2 shadow-glow">
+                <Crown className="w-4 h-4 text-primary-foreground" />
+                <span className="text-sm font-medium text-primary-foreground">
+                  Welcome back, {user.email?.split('@')[0]}!
+                </span>
+              </div>
+            )}
 
             <div className="flex items-center justify-center gap-8 pt-4">
               <div className="flex items-center gap-2">
@@ -108,9 +163,9 @@ export default function Index() {
 
       {/* Main App */}
       <div className="max-w-6xl mx-auto px-4 py-12">
-        <div className="grid lg:grid-cols-2 gap-8">
+        <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Upload & Prompt */}
-          <div className="space-y-8">
+          <div className="lg:col-span-2 space-y-8">
             <div className="bg-card/50 backdrop-blur-sm rounded-lg p-6 border border-border/30 shadow-card">
               <h2 className="text-2xl font-semibold text-foreground mb-6 flex items-center gap-2">
                 <div className="w-8 h-8 bg-gradient-primary rounded-lg flex items-center justify-center">
@@ -136,13 +191,14 @@ export default function Index() {
                 onPromptChange={setPrompt}
                 onGenerate={handleGenerate}
                 isGenerating={isGenerating}
-                disabled={!selectedImage}
+                disabled={!selectedImage || !user}
               />
             </div>
           </div>
 
-          {/* Right Column - Results */}
+          {/* Right Column - Results & History */}
           <div className="space-y-8">
+            <GenerationHistory />
             {generatedImage && originalImageUrl ? (
               <div className="bg-card/50 backdrop-blur-sm rounded-lg p-6 border border-border/30 shadow-card animate-scale-in">
                 <h2 className="text-2xl font-semibold text-foreground mb-6 flex items-center gap-2">
@@ -165,12 +221,20 @@ export default function Index() {
                   </div>
                   <div>
                     <h3 className="text-lg font-medium text-muted-foreground">
-                      Ready to Transform
+                      {!user ? 'Sign in to transform images' : 'Ready to Transform'}
                     </h3>
                     <p className="text-sm text-muted-foreground/80 mt-1">
-                      Upload an image and enter a prompt to see the magic happen
+                      {!user 
+                        ? 'Create an account to start generating AI transformations'
+                        : 'Upload an image and enter a prompt to see the magic happen'
+                      }
                     </p>
                   </div>
+                  {!user && (
+                    <div className="pt-2">
+                      <AuthButton />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
